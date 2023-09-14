@@ -1,0 +1,903 @@
+19c19
+< !           ( errflg, errmsg )                                         !
+---
+> !           ( none )                                                   !
+32,33c32,33
+< !            imp_physics_mg, iovr, iovr_rand, iovr_maxrand, iovr_max,  !
+< !            iovr_dcorr, iovr_exp, iovr_exprand, idcor, idcor_con,     !
+---
+> !            imp_physics_mg, iovr_rand, iovr_maxrand, iovr_max,        !
+> !            iovr_dcorr, iovr_exp, iovr_exprand, idcor_con,            !
+35c35
+< !            imfdeepcnv, imfdeepcnv_gf, imfdeepcnv_c3, do_mynnedmf, lgfdlmprad,       !
+---
+> !            imfdeepcnv, imfdeepcnv_gf, do_mynnedmf, lgfdlmprad,       !
+70a71,73
+> !                                                                      !
+> !       'module physparam'           in 'physparam.f'                  !
+> !       'module physcons'            in 'physcons.f'                   !
+72a76
+> !                                                                      !
+140,141c144,146
+< !> \defgroup module_radiation_clouds Radiation Clouds Module
+< !! This module computes cloud related quantities for radiation
+---
+> !> \defgroup module_radiation_clouds RRTMG Clouds Module
+> !! @{
+> !! \brief This module computes cloud related quantities for radiation
+143c148
+< !> @{
+---
+> !!
+151a157,162
+> !! Cloud prediction model (namelist control parameter - \b NTCW, \b IMP_PHYSICS):
+> !!\n NTCW=0: legacy diagnostic cloud scheme based on RH-table lookup table
+> !!\n NTCW>0: prognostic cloud condensate
+> !!\n IMP_PHYSICS =98/99: Zhao-Carr-Sundqvist MP - Xu-Randall diagnostic cloud fraction
+> !!\n IMP_PHYSICS =11: GFDL MP - unified diagnostic cloud fraction provided by GFDL MP
+> !!
+163a175,178
+> !!
+> !!\version NCEP-Radiation_clouds    v5.1  Nov 2012
+> !!
+> !! @}
+167a183,189
+>       use physparam,           only : icldflg, iovr, idcor,             &
+>      &                                lcrick, lcnorm, lnoprec,          &
+>      &                                ivflip
+>       use physcons,            only : con_fvirt, con_ttp, con_rocp,     &
+>      &                                con_t0c, con_pi, con_g, con_rd,   &
+>      &                                con_thgni, decorr_con
+>       use module_microphysics, only : rsipath2
+183c205,207
+<       real (kind=kind_phys) :: gfac,gord
+---
+>       real (kind=kind_phys), parameter :: gfac=1.0e5/con_g              &
+>      &,                                   gord=con_g/con_rd
+> 
+238a263
+> !> \ingroup module_radiation_clouds
+253a279
+> !! @{
+255c281,284
+<      &     ( si, NLAY, imp_physics, me, con_g, con_rd, errflg, errmsg )
+---
+>      &     ( si, NLAY, imp_physics, me ) !  ---  inputs
+> !  ---  outputs:
+> !          ( none )
+> 
+267d295
+< !   imp_physics         : cloud microphysics scheme control flag        !
+269,271c297,298
+< !  outputs:                                                             !
+< !   errflg          : CCPP error flag                                   !
+< !   errmsg          : CCPP error message                                !
+---
+> !  outputs: (none)                                                      !
+> !           to module variables                                         !
+272a300,320
+> !  external module variables: (in physparam)                            !
+> !   icldflg         : cloud optical property scheme control flag        !
+> !                     =0: abort! diagnostic cloud method discontinued   !
+> !                     =1: model use prognostic cloud method             !
+> !   imp_physics         : cloud microphysics scheme control flag        !
+> !                     =99: zhao/carr/sundqvist microphysics cloud       !
+> !                     =98: zhao/carr/sundqvist microphysics cloud+pdfcld!
+> !                     =11: GFDL microphysics cloud                      !
+> !                     =8: Thompson microphysics                         !
+> !                     =6: WSM6 microphysics                             !
+> !                     =10: MG microphysics                              !
+> !   iovr            : control flag for cloud overlapping scheme         !
+> !                     =0: random overlapping clouds                     !
+> !                     =1: max/ran overlapping clouds                    !
+> !                     =2: maximum overlap clouds       (mcica only)     !
+> !                     =3: decorrelation-length overlap (mcica only)     !
+> !                     =4: exponential cloud overlap  (AER; mcica only)  !
+> !                     =5: exponential-random overlap (AER; mcica only)  !
+> !   ivflip          : control flag for direction of vertical index      !
+> !                     =0: index from toa to surface                     !
+> !                     =1: index from surface to toa                     !
+284c332
+<       real (kind=kind_phys), intent(in) :: si(:), con_g, con_rd
+---
+>       real (kind=kind_phys), intent(in) :: si(:)
+286,288c334,337
+< !  ---  outputs:
+<       integer,          intent(out) :: errflg
+<       character(len=*), intent(out) :: errmsg
+---
+> !  ---  outputs: (none)
+> 
+> !  ---  locals:
+>       integer :: k, kl, ier
+293,299c342,344
+< ! Initialize CCPP error handling variables
+<       errmsg = ''
+<       errflg = 0
+< 
+<       ! Initialze module parameters
+<       gfac = 1.0e5/con_g
+<       gord = con_g/con_rd
+---
+> !  ---  set up module variables
+> 
+>       if (me == 0) print *, VTAGCLD      !print out version tag
+300a346,350
+>       if ( icldflg == 0 ) then
+>         print *,' - Diagnostic Cloud Method has been discontinued'
+>         stop
+> 
+>       else
+302d351
+<          print *, VTAGCLD       !print out version tag
+325,328c374,375
+<             errflg = 1
+<             errmsg = 'ERROR(cld_init): cloud mp specification is not'// &
+<      &       ' valid'
+<             return
+---
+>             stop
+>           endif
+330a378,398
+> 
+> !> - Compute the top of BL cld (llyr), which is the topmost non
+> !!    cld(low) layer for stratiform (at or above lowest 0.1 of the
+> !!     atmosphere).
+> 
+>       if ( ivflip == 0 ) then    ! data from toa to sfc
+>         lab_do_k0 : do k = NLAY, 2, -1
+>           kl = k
+>           if (si(k) < 0.9e0) exit lab_do_k0
+>         enddo  lab_do_k0
+> 
+>         llyr = kl
+>       else                      ! data from sfc to top
+>         lab_do_k1 : do k = 2, NLAY
+>           kl = k
+>           if (si(k) < 0.9e0) exit lab_do_k1
+>         enddo  lab_do_k1
+> 
+>         llyr = kl - 1
+>       endif                     ! end_if_ivflip
+> 
+334a403
+> !! @}
+336a406
+> !> \ingroup module_radiation_clouds
+339a410
+> !> @{
+344c415
+<      &       deltaq, sup, dcorr_con, me, icloud, kdt,                   &
+---
+>      &       deltaq, sup, me, icloud, kdt,                              &
+350,354c421,424
+<      &       imp_physics_mg, iovr, iovr_rand, iovr_maxrand, iovr_max,   &
+<      &       iovr_dcorr, iovr_exp, iovr_exprand, idcor, idcor_con,      &
+<      &       idcor_hogan, idcor_oreopoulos, lcrick, lcnorm,             &
+<      &       imfdeepcnv, imfdeepcnv_gf, imfdeepcnv_c3,                  &
+<      &       do_mynnedmf, lgfdlmprad,                                   &
+---
+>      &       imp_physics_mg, iovr_rand, iovr_maxrand, iovr_max,         &
+>      &       iovr_dcorr, iovr_exp, iovr_exprand, idcor_con,             &
+>      &       idcor_hogan, idcor_oreopoulos,                             &
+>      &       imfdeepcnv, imfdeepcnv_gf, do_mynnedmf, lgfdlmprad,        &
+359,360c429
+<      &       dzlay, latdeg, julian, yearlen, gridkm, top_at_1, si,      &
+<      &       con_ttp, con_pi, con_g, con_rd, con_thgni,                 &
+---
+>      &       dzlay, latdeg, julian, yearlen, gridkm,                    &
+444,454c513,521
+< !   iovr            : choice of cloud-overlap                           !
+< !   iovr_rand       : flag of cloud-overlap: random (=0)                !
+< !   iovr_maxrand    : flag of cloud-overlap: maximum random (=1)        !
+< !   iovr_max        : flag of cloud-overlap: maximum (=2)               !
+< !   iovr_dcorr      : flag of cloud-overlap: decorrelation length(=3)   !
+< !   iovr_exp        : flag of cloud-overlap: exponential (=4)           !
+< !   iovr_exprand    : flag of cloud-overlap: exponential random (=5)    !
+< !   idcor           : choice for decorrelation-length                   !
+< !   idcor_con       : flag for decorrelation-length: Use constant value (=0)
+< !   idcor_hogan     : flag for decorrelation-length: (=1)               !
+< !   idcor_oreopoulos: flag for decorrelation-length: (=2)               !
+---
+> !   iovr_rand       :  choice of cloud-overlap: random (=0)
+> !   iovr_maxrand    :  choice of cloud-overlap: maximum random (=1)
+> !   iovr_max        :  choice of cloud-overlap: maximum (=2)
+> !   iovr_dcorr      :  choice of cloud-overlap: decorrelation length (=3)
+> !   iovr_exp        :  choice of cloud-overlap: exponential (=4)
+> !   iovr_exprand    :  choice of cloud-overlap: exponential random (=5)
+> !   idcor_con       :  choice for decorrelation-length: Use constant value (=0)
+> !   idcor_hogan     :  choice for decorrelation-length: (=1)
+> !   idcor_oreopoulos:  choice for decorrelation-length: (=2)
+457d523
+< !   imfdeepcnv_c3   :  flag for unified convection scheme
+463d528
+< !   top_at_1        : logical - true if ordered from toa-2-sfc          !
+482,490c547
+< !   gridkm          : grid length in km                                 !
+< !   lmfshal         : mass-flux shallow conv scheme flag                !
+< !   lmfdeep2        : scale-aware mass-flux deep conv scheme flag       !
+< !   lcrick          : control flag for eliminating CRICK                !
+< !                     =t: apply layer smoothing to eliminate CRICK      !
+< !                     =f: do not apply layer smoothing                  !
+< !   lcnorm          : control flag for in-cld condensate                !
+< !                     =t: normalize cloud condensate                    !
+< !                     =f: not normalize cloud condensate                !
+---
+> !   gridkm          : grid length in km
+508c565,578
+< !   alpha(ix,nlay)  : alpha decorrelation parameter                     !
+---
+> !   alpha(ix,nlay)  : alpha decorrelation parameter
+> !                                                                       !
+> ! module variables:                                                     !
+> !   ivflip          : control flag of vertical index direction          !
+> !                     =0: index from toa to surface                     !
+> !                     =1: index from surface to toa                     !
+> !   lmfshal         : mass-flux shallow conv scheme flag                !
+> !   lmfdeep2        : scale-aware mass-flux deep conv scheme flag       !
+> !   lcrick          : control flag for eliminating CRICK                !
+> !                     =t: apply layer smoothing to eliminate CRICK      !
+> !                     =f: do not apply layer smoothing                  !
+> !   lcnorm          : control flag for in-cld condensate                !
+> !                     =t: normalize cloud condensate                    !
+> !                     =f: not normalize cloud condensate                !
+517,518c587
+<       integer,  intent(in) :: kdt, imfdeepcnv, imfdeepcnv_gf,           &
+<      &     imfdeepcnv_c3
+---
+>       integer,  intent(in) :: kdt, imfdeepcnv, imfdeepcnv_gf
+532d600
+<      &     iovr,                         !
+539d606
+<      &     idcor,
+545,546c612,613
+<       logical, intent(in)  :: uni_cld, lmfshal, lmfdeep2, effr_in,      &
+<      &     do_mynnedmf, lgfdlmprad, top_at_1, lcrick, lcnorm
+---
+>       logical, intent(in)  :: uni_cld, lmfshal, lmfdeep2, effr_in
+>       logical, intent(in)  :: do_mynnedmf, lgfdlmprad
+554,555c621
+<       real (kind=kind_phys), intent(in) :: sup, dcorr_con, con_ttp,     &
+<      &     con_pi, con_g, con_rd, con_thgni 
+---
+>       real (kind=kind_phys), intent(in) :: sup
+557c623
+<      &       slmsk, si
+---
+>      &       slmsk
+635c701
+<      &                     cldtot, cldcnv, lcrick, lcnorm, con_ttp,     & ! inout
+---
+>      &                     cldtot, cldcnv,                              & ! inout
+646c712
+<      &                    cldtot, cldcnv, lcrick, lcnorm, con_ttp,      & ! inout
+---
+>      &                    cldtot, cldcnv,                               & ! inout
+658,659c724,725
+<      &                 cldtot, cldcnv, lcrick, lcnorm, con_thgni,       &  ! inout
+<      &                 con_ttp, cld_frac, cld_lwp, cld_reliq, cld_iwp,  &  !  ---  outputs
+---
+>      &                 cldtot, cldcnv,                                  &  ! inout
+>      &                 cld_frac, cld_lwp, cld_reliq, cld_iwp,           &  !  ---  outputs
+670c736
+<      &                    cldtot, cldcnv, lcrick, lcnorm, con_ttp,      &  ! inout
+---
+>      &                    cldtot, cldcnv,                               &  ! inout
+680c746
+<      &                   cldtot, cldcnv, lcrick, lcnorm, con_ttp,       &  ! inout
+---
+>      &                   cldtot, cldcnv,                                &  ! inout
+702c768
+<      &                    cldtot, cldcnv, lcnorm,                       &  ! inout
+---
+>      &                    cldtot, cldcnv,                               &  ! inout
+709,710c775
+<           if(do_mynnedmf .or. imfdeepcnv == imfdeepcnv_gf .or.          &
+<      &          imfdeepcnv == imfdeepcnv_c3) then ! MYNN PBL or GF or unified conv
+---
+>           if(do_mynnedmf .or. imfdeepcnv == imfdeepcnv_gf ) then ! MYNN PBL or GF conv
+726c791
+<      &                   cldtot, cldcnv, lcrick, lcnorm, con_ttp,       &  ! inout
+---
+>      &                   cldtot, cldcnv,                                &  ! inout
+735c800
+<      &                   ntsw-1,ntgl-1,con_ttp,                         &
+---
+>      &                   ntsw-1,ntgl-1,                                 &
+741c806
+<      &                   cldtot, cldcnv, lcnorm,                        &  ! inout
+---
+>      &                   cldtot, cldcnv,                                &  ! inout
+791,792c856
+<           if(do_mynnedmf .or. imfdeepcnv == imfdeepcnv_gf               &
+<      &          .or. imfdeepcnv == imfdeepcnv_c3) then ! MYNN PBL or GF conv
+---
+>           if(do_mynnedmf .or. imfdeepcnv == imfdeepcnv_gf ) then ! MYNN PBL or GF conv
+802c866
+<      &                    dzlay,  gridkm, top_at_1,                     &
+---
+>      &                    dzlay,  gridkm,                               &
+824c888
+<      &                   cldtot, cldcnv, lcrick, lcnorm, con_ttp,       &  ! inout
+---
+>      &                   cldtot, cldcnv,                                &  ! inout
+841c905
+<      &                   dzlay,  gridkm, top_at_1,                      &
+---
+>      &                   dzlay,  gridkm,                                &
+851c915
+<      &                   ntsw-1,ntgl-1,con_ttp,                         &
+---
+>      &                   ntsw-1,ntgl-1,                                 &
+856c920
+<      &                   cldtot, cldcnv, lcnorm,                        &  ! inout
+---
+>      &                   cldtot, cldcnv,                                &  ! inout
+891c955
+<          de_lgth(:) = dcorr_con
+---
+>          de_lgth(:) = decorr_con
+916,917c980,981
+<      &       IX, NLAY, iovr, iovr_rand, iovr_maxrand, iovr_max,         &
+<      &       iovr_dcorr, iovr_exp, iovr_exprand, top_at_1, si,          &
+---
+>      &       IX, NLAY, iovr_rand, iovr_maxrand, iovr_max,               &
+>      &       iovr_dcorr, iovr_exp, iovr_exprand,                        &
+925a990
+> !> \ingroup module_radiation_clouds
+928a994
+> !> @{
+934c1000
+<      &       dzlay, cldtot, cldcnv, lcrick, lcnorm, con_ttp,            &
+---
+>      &       dzlay, cldtot, cldcnv,                                     &
+952a1019,1020
+> ! subprograms called:   gethml                                          !
+> !                                                                       !
+987,994d1054
+< !   lmfshal         : mass-flux shallow conv scheme flag                !
+< !   lmfdeep2        : scale-aware mass-flux deep conv scheme flag       !
+< !   lcrick          : control flag for eliminating CRICK                !
+< !                     =t: apply layer smoothing to eliminate CRICK      !
+< !                     =f: do not apply layer smoothing                  !
+< !   lcnorm          : control flag for in-cld condensate                !
+< !                     =t: normalize cloud condensate                    !
+< !                     =f: not normalize cloud condensate                !
+1007a1068,1080
+> ! module variables:                                                     !
+> !   ivflip          : control flag of vertical index direction          !
+> !                     =0: index from toa to surface                     !
+> !                     =1: index from surface to toa                     !
+> !   lmfshal         : mass-flux shallow conv scheme flag                !
+> !   lmfdeep2        : scale-aware mass-flux deep conv scheme flag       !
+> !   lcrick          : control flag for eliminating CRICK                !
+> !                     =t: apply layer smoothing to eliminate CRICK      !
+> !                     =f: do not apply layer smoothing                  !
+> !   lcnorm          : control flag for in-cld condensate                !
+> !                     =t: normalize cloud condensate                    !
+> !                     =f: not normalize cloud condensate                !
+> !                                                                       !
+1015,1016c1088
+<       logical, intent(in)  :: uni_cld, lmfshal, lmfdeep2, effr_in,      &
+<      &     lcrick, lcnorm
+---
+>       logical, intent(in)  :: uni_cld, lmfshal, lmfdeep2, effr_in
+1024d1095
+<       real (kind=kind_phys), intent(in) :: con_ttp
+1222a1294
+> !> @}
+1224a1297
+> !> \ingroup module_radiation_clouds
+1227a1301
+> !! @{
+1233c1307
+<      &       dzlay, cldtot, cldcnv, lcrick, lcnorm, con_thgni, con_ttp, &
+---
+>      &       dzlay, cldtot, cldcnv,                                     &
+1251a1326,1327
+> ! subprograms called:   gethml                                          !
+> !                                                                       !
+1281,1286d1356
+< !   lcrick          : control flag for eliminating crick                !
+< !                     =t: apply layer smoothing to eliminate crick      !
+< !                     =f: do not apply layer smoothing                  !
+< !   lcnorm          : control flag for in-cld condensate                !
+< !                     =t: normalize cloud condensate                    !
+< !                     =f: not normalize cloud condensate                !
+1299a1370,1380
+> ! module variables:                                                     !
+> !   ivflip          : control flag of vertical index direction          !
+> !                     =0: index from toa to surface                     !
+> !                     =1: index from surface to toa                     !
+> !   lcrick          : control flag for eliminating crick                !
+> !                     =t: apply layer smoothing to eliminate crick      !
+> !                     =f: do not apply layer smoothing                  !
+> !   lcnorm          : control flag for in-cld condensate                !
+> !                     =t: normalize cloud condensate                    !
+> !                     =f: not normalize cloud condensate                !
+> !                                                                       !
+1306c1387
+<       logical,  intent(in) :: lcrick, lcnorm
+---
+> 
+1311d1391
+<       real (kind=kind_phys), intent(in) :: con_thgni, con_ttp
+1407c1487
+<             if(tem1 < (con_thgni - 273.16)) then  ! for pure ice, has to be consistent with gscond
+---
+>             if(tem1 < con_thgni) then  ! for pure ice, has to be consistent with gscond
+1515a1596
+> !! @}
+1519a1601
+> !> \ingroup module_radiation_clouds
+1522a1605
+> !! @{
+1527c1610
+<      &       dzlay, cldtot1, cldcnv, lcrick, lcnorm, con_ttp,           &
+---
+>      &       dzlay, cldtot1, cldcnv,                                    &
+1545a1629,1630
+> ! subprograms called:   gethml                                          !
+> !                                                                       !
+1573,1578d1657
+< !   lcrick          : control flag for eliminating CRICK                !
+< !                     =t: apply layer smoothing to eliminate CRICK      !
+< !                     =f: do not apply layer smoothing                  !
+< !   lcnorm          : control flag for in-cld condensate                !
+< !                     =t: normalize cloud condensate                    !
+< !                     =f: not normalize cloud condensate                ! 
+1591a1671,1682
+> ! module variables:                                                     !
+> !   ivflip          : control flag of vertical index direction          !
+> !                     =0: index from toa to surface                     !
+> !                     =1: index from surface to toa                     !
+> !   lsashal         : control flag for shallow convection               !
+> !   lcrick          : control flag for eliminating CRICK                !
+> !                     =t: apply layer smoothing to eliminate CRICK      !
+> !                     =f: do not apply layer smoothing                  !
+> !   lcnorm          : control flag for in-cld condensate                !
+> !                     =t: normalize cloud condensate                    !
+> !                     =f: not normalize cloud condensate                !
+> !                                                                       !
+1598c1689
+<       logical,  intent(in) :: lcrick, lcnorm
+---
+> 
+1602d1692
+<       real (kind=kind_phys) :: con_ttp
+1757a1848
+> !! @}
+1760a1852
+> !> \ingroup module_radiation_clouds
+1770c1862
+<      &       dzlay, cldtot, cldcnv, lcnorm,                             &
+---
+>      &       dzlay, cldtot, cldcnv,                                     &
+1788a1881,1882
+> ! subprograms called:   gethml                                          !
+> !                                                                       !
+1819,1826d1912
+< !   lmfshal         : mass-flux shallow conv scheme flag                !
+< !   lmfdeep2        : scale-aware mass-flux deep conv scheme flag       !
+< !   lcrick          : control flag for eliminating CRICK                !
+< !                     =t: apply layer smoothing to eliminate CRICK      !
+< !                     =f: do not apply layer smoothing                  !
+< !   lcnorm          : control flag for in-cld condensate                !
+< !                     =t: normalize cloud condensate                    !
+< !                     =f: not normalize cloud condensate                !
+1839a1926,1938
+> ! module variables:                                                     !
+> !   ivflip          : control flag of vertical index direction          !
+> !                     =0: index from toa to surface                     !
+> !                     =1: index from surface to toa                     !
+> !   lmfshal         : mass-flux shallow conv scheme flag                !
+> !   lmfdeep2        : scale-aware mass-flux deep conv scheme flag       !
+> !   lcrick          : control flag for eliminating CRICK                !
+> !                     =t: apply layer smoothing to eliminate CRICK      !
+> !                     =f: do not apply layer smoothing                  !
+> !   lcnorm          : control flag for in-cld condensate                !
+> !                     =t: normalize cloud condensate                    !
+> !                     =f: not normalize cloud condensate                !
+> !                                                                       !
+1848c1947
+<       logical, intent(in)  :: uni_cld, lmfshal, lmfdeep2, lcnorm
+---
+>       logical, intent(in)  :: uni_cld, lmfshal, lmfdeep2
+2013c2112
+<      &       ntrac,ntcw,ntiw,ntrw,ntsw,ntgl,con_ttp,                    &
+---
+>      &       ntrac,ntcw,ntiw,ntrw,ntsw,ntgl,                            &
+2018c2117
+<      &       dzlay, cldtot, cldcnv, lcnorm,                             &
+---
+>      &       dzlay, cldtot, cldcnv,                                     &
+2037a2137,2138
+> ! subprograms called:   gethml                                          !
+> !                                                                       !
+2067,2074d2167
+< !   lmfshal         : mass-flux shallow conv scheme flag                !
+< !   lmfdeep2        : scale-aware mass-flux deep conv scheme flag       !
+< !   lcrick          : control flag for eliminating CRICK                !
+< !                     =t: apply layer smoothing to eliminate CRICK      !
+< !                     =f: do not apply layer smoothing                  !
+< !   lcnorm          : control flag for in-cld condensate                !
+< !                     =t: normalize cloud condensate                    !
+< !                     =f: not normalize cloud condensate                !  
+2092a2186,2198
+> ! module variables:                                                     !
+> !   ivflip          : control flag of vertical index direction          !
+> !                     =0: index from toa to surface                     !
+> !                     =1: index from surface to toa                     !
+> !   lmfshal         : mass-flux shallow conv scheme flag                !
+> !   lmfdeep2        : scale-aware mass-flux deep conv scheme flag       !
+> !   lcrick          : control flag for eliminating CRICK                !
+> !                     =t: apply layer smoothing to eliminate CRICK      !
+> !                     =f: do not apply layer smoothing                  !
+> !   lcnorm          : control flag for in-cld condensate                !
+> !                     =t: normalize cloud condensate                    !
+> !                     =f: not normalize cloud condensate                !
+> !                                                                       !
+2101c2207
+<       logical, intent(in)  :: uni_cld, lmfshal, lmfdeep2, lcnorm
+---
+>       logical, intent(in)  :: uni_cld, lmfshal, lmfdeep2
+2113c2219
+<       real (kind=kind_phys), intent(in) :: con_ttp
+---
+> 
+2130,2132c2236,2237
+<       real (kind=kind_phys), parameter :: xrc3 = 100.
+<       real (kind=kind_phys), parameter :: snow2ice = 0.25
+<       real (kind=kind_phys), parameter :: coef_t = 0.025
+---
+>       real (kind=kind_phys), parameter :: xrc3 = 200.
+> 
+2148c2253
+<           tem2d (i,k) = min(1.0, max( 0.0, (con_ttp-tlyr(i,k))*coef_t))
+---
+> !         tem2d (i,k) = min( 1.0, max( 0.0, (con_ttp-tlyr(i,k))*0.05 ) )
+2179,2180c2284,2285
+< !> - Compute total-cloud liquid/ice condensate path in \f$ g/m^2 \f$.
+< !>   The total condensate includes convective condensate.
+---
+> !> - Compute cloud liquid/ice condensate path in \f$ g/m^2 \f$ .
+> 
+2183,2193c2288,2289
+<             tem1 = cnvw(i,k)*(1.-tem2d(i,k))
+<             cwp(i,k) = max(0.0, (clw(i,k,ntcw)+tem1) *
+<      &                 gfac * delp(i,k))
+<             if(tem1 > 1.e-12 .and.  clw(i,k,ntcw) < 1.e-12)
+<      &                 rew(i,k)=reliq_def
+<             tem2 = cnvw(i,k)*tem2d(i,k)
+<             cip(i,k) = max(0.0, (clw(i,k,ntiw) +
+<      &             snow2ice*clw(i,k,ntsw) + tem2) *
+<      &             gfac * delp(i,k))
+<             if(tem2 > 1.e-12 .and.  clw(i,k,ntiw) < 1.e-12)
+<      &             rei(i,k)=reice_def
+---
+>             cwp(i,k) = max(0.0, clw(i,k,ntcw) * gfac * delp(i,k))
+>             cip(i,k) = max(0.0, clw(i,k,ntiw) * gfac * delp(i,k))
+2195,2196c2291
+<             csp(i,k) = max(0.0, (1.-snow2ice)*clw(i,k,ntsw) *
+<      &             gfac * delp(i,k))
+---
+>             csp(i,k) = max(0.0, clw(i,k,ntsw) * gfac * delp(i,k))
+2295a2391,2392
+> !mz
+> 
+2298,2306c2395,2403
+< !> This subroutine added by G. Thompson specifically to account for
+< !! explicit (microphysics-produced) cloud liquid water, cloud ice, and
+< !! snow with 100% cloud fraction.  Also, a parameterization for cloud
+< !! fraction less than 1.0 but greater than 0.0 follows Mocko and Cotton
+< !! (1996) from Sundqvist et al. (1989) with cloud fraction increasing
+< !! as RH increases above a critical value.  In locations with non-zero
+< !! (but less than 1.0) cloud fraction, there MUST be a value assigned
+< !! to cloud liquid water and ice or else there is zero impact in the
+< !! RRTMG radiation scheme.
+---
+> ! This subroutine added by G. Thompson specifically to account for
+> ! explicit (microphysics-produced) cloud liquid water, cloud ice, and
+> ! snow with 100% cloud fraction.  Also, a parameterization for cloud
+> ! fraction less than 1.0 but greater than 0.0 follows Mocko and Cotton
+> ! (1996) from Sundqvist et al. (1989) with cloud fraction increasing
+> ! as RH increases above a critical value.  In locations with non-zero
+> ! (but less than 1.0) cloud fraction, there MUST be a value assigned
+> ! to cloud liquid water and ice or else there is zero impact in the
+> ! RRTMG radiation scheme.
+2315c2412
+<      &       dzlay,  gridkm, top_at_1, cldtot, cldcnv,                  &
+---
+>      &       dzlay,  gridkm, cldtot, cldcnv,                            &
+2333a2431,2432
+> ! subprograms called:   gethml                                          !
+> !                                                                       !
+2363d2461
+< !   top_at_1        : logical - true if vertical ordereing is toa-2-sfc !
+2365,2372d2462
+< !   lmfshal         : mass-flux shallow conv scheme flag                !
+< !   lmfdeep2        : scale-aware mass-flux deep conv scheme flag       !
+< !   lcrick          : control flag for eliminating CRICK                !
+< !                     =t: apply layer smoothing to eliminate CRICK      !
+< !                     =f: do not apply layer smoothing                  !
+< !   lcnorm          : control flag for in-cld condensate                !
+< !                     =t: normalize cloud condensate                    !
+< !                     =f: not normalize cloud condensate                !
+2385a2476,2488
+> ! module variables:                                                     !
+> !   ivflip          : control flag of vertical index direction          !
+> !                     =0: index from toa to surface                     !
+> !                     =1: index from surface to toa                     !
+> !   lmfshal         : mass-flux shallow conv scheme flag                !
+> !   lmfdeep2        : scale-aware mass-flux deep conv scheme flag       !
+> !   lcrick          : control flag for eliminating CRICK                !
+> !                     =t: apply layer smoothing to eliminate CRICK      !
+> !                     =f: do not apply layer smoothing                  !
+> !   lcnorm          : control flag for in-cld condensate                !
+> !                     =t: normalize cloud condensate                    !
+> !                     =f: not normalize cloud condensate                !
+> !                                                                       !
+2394c2497
+<       logical, intent(in)  :: uni_cld, lmfshal, lmfdeep2, top_at_1
+---
+>       logical, intent(in)  :: uni_cld, lmfshal, lmfdeep2
+2456c2559
+<           snow_mass_factor = 0.90
+---
+>           snow_mass_factor = 0.99
+2498c2601
+<          if (.not. top_at_1) then
+---
+>          if (ivflip .eq. 1) then
+2584a2688
+> !> \ingroup module_radiation_clouds
+2587a2692
+> !> @{
+2592c2697
+<      &       dzlay, cldtot1, cldcnv, lcrick, lcnorm, con_ttp,           &
+---
+>      &       dzlay, cldtot1, cldcnv,                                     &
+2613a2719,2720
+> ! subprograms called:   gethml                                          !
+> !                                                                       !
+2644,2651d2750
+< !   lmfshal         : mass-flux shallow conv scheme flag                !
+< !   lmfdeep2        : scale-aware mass-flux deep conv scheme flag       !
+< !   lcrick          : control flag for eliminating CRICK                !
+< !                     =t: apply layer smoothing to eliminate CRICK      !
+< !                     =f: do not apply layer smoothing                  !
+< !   lcnorm          : control flag for in-cld condensate                !
+< !                     =t: normalize cloud condensate                    !
+< !                     =f: not normalize cloud condensate                !
+2669c2768,2781
+< !   alpha(ix,nlay)  : alpha decorrelation parameter                     !
+---
+> !   alpha(ix,nlay)  : alpha decorrelation parameter
+> !                                                                       !
+> ! module variables:                                                     !
+> !   ivflip          : control flag of vertical index direction          !
+> !                     =0: index from toa to surface                     !
+> !                     =1: index from surface to toa                     !
+> !   lmfshal         : mass-flux shallow conv scheme flag                !
+> !   lmfdeep2        : scale-aware mass-flux deep conv scheme flag       !
+> !   lcrick          : control flag for eliminating CRICK                !
+> !                     =t: apply layer smoothing to eliminate CRICK      !
+> !                     =f: do not apply layer smoothing                  !
+> !   lcnorm          : control flag for in-cld condensate                !
+> !                     =t: normalize cloud condensate                    !
+> !                     =f: not normalize cloud condensate                !
+2677c2789
+<       logical,  intent(in) :: effr_in, lcrick, lcnorm
+---
+>       logical,  intent(in) :: effr_in
+2679d2790
+<       real (kind=kind_phys), intent(in) :: con_ttp
+2867a2979
+> !> @}
+2868a2981
+> !> \ingroup module_radiation_clouds
+2874,2875c2987,2988
+< !! \param plyr    (IX,NLAY), model layer mean pressure in mb (100Pa)
+< !! \param ptop1   (IX,4), pressure limits of cloud domain interfaces
+---
+> !> \param plyr    (IX,NLAY), model layer mean pressure in mb (100Pa)
+> !> \param ptop1   (IX,4), pressure limits of cloud domain interfaces
+2877,2892c2990,2999
+< !! \param cldtot  (IX,NLAY), total or stratiform cloud profile in fraction
+< !! \param cldcnv  (IX,NLAY), convective cloud (for diagnostic scheme only)
+< !! \param dz      (IX,NLAY), layer thickness (km)
+< !! \param de_lgth (IX),  clouds decorrelation length (km)
+< !! \param alpha   (IX,NLAY), alpha decorrelation parameter
+< !! \param IX      horizontal dimension
+< !! \param NLAY    vertical layer dimensions
+< !! \param iovr_rand     flag for random cloud overlap method
+< !! \param iovr_maxrand  flag for maximum-random cloud overlap method
+< !! \param iovr_max      flag for maximum cloud overlap method
+< !! \param iovr_dcorr    flag for decorrelation-length cloud overlap method
+< !! \param iovr_exp      flag for exponential cloud overlap method
+< !! \param iovr_exprand  flag for exponential-random cloud overlap method
+< !! \param clds   (IX,5), fraction of clouds for low, mid, hi, tot, bl
+< !! \param mtop   (IX,3),vertical indices for low, mid, hi cloud tops
+< !! \param mbot   (IX,3),vertical indices for low, mid, hi cloud bases
+---
+> !> \param cldtot  (IX,NLAY), total or stratiform cloud profile in fraction
+> !> \param cldcnv  (IX,NLAY), convective cloud (for diagnostic scheme only)
+> !> \param dz      (IX,NLAY), layer thickness (km)
+> !> \param de_lgth (IX),  clouds decorrelation length (km)
+> !> \param alpha   (IX,NLAY), alpha decorrelation parameter
+> !> \param IX      horizontal dimension
+> !> \param NLAY    vertical layer dimensions
+> !> \param clds   (IX,5), fraction of clouds for low, mid, hi, tot, bl
+> !> \param mtop   (IX,3),vertical indices for low, mid, hi cloud tops
+> !> \param mbot   (IX,3),vertical indices for low, mid, hi cloud bases
+2894a3002
+> !! @{
+2897,2898c3005,3006
+<      &       IX, NLAY, iovr, iovr_rand, iovr_maxrand, iovr_max,         &
+<      &       iovr_dcorr, iovr_exp, iovr_exprand, top_at_1, si,          &
+---
+>      &       IX, NLAY, iovr_rand, iovr_maxrand, iovr_max,               &
+>      &       iovr_dcorr, iovr_exp, iovr_exprand,                        &
+2936c3044,3050
+< !   mbot  (IX,3)    : vertical indices for low, mid, hi cloud bases     !                                                              !
+---
+> !   mbot  (IX,3)    : vertical indices for low, mid, hi cloud bases     !
+> !                                                                       !
+> ! external module variables:  (in physparam)                            !
+> !   ivflip          : control flag of vertical index direction          !
+> !                     =0: index from toa to surface                     !
+> !                     =1: index from surface to toa                     !
+> !                                                                       !
+2951d3064
+<       logical, intent(in) :: top_at_1
+2954d3066
+<      &     iovr,                         !
+2964c3076
+<       real (kind=kind_phys), dimension(:),   intent(in) :: de_lgth, si
+---
+>       real (kind=kind_phys), dimension(:),   intent(in) :: de_lgth
+2977c3089
+<       integer :: i, k, id, id1, kstr, kend, kinc,kl
+---
+>       integer :: i, k, id, id1, kstr, kend, kinc
+2982,3000d3093
+< !> - Compute the top of BL cld (llyr), which is the topmost non
+< !!    cld(low) layer for stratiform (at or above lowest 0.1 of the
+< !!     atmosphere).
+< 
+<       if (top_at_1) then    ! data from toa to sfc
+<         lab_do_k0 : do k = NLAY, 2, -1
+<           kl = k
+<           if (si(k) < 0.9e0) exit lab_do_k0
+<         enddo  lab_do_k0
+<         llyr = kl
+<       else                      ! data from sfc to top
+<         lab_do_k1 : do k = 2, NLAY
+<           kl = k
+<           if (si(k) < 0.9e0) exit lab_do_k1
+<         enddo  lab_do_k1
+< 
+<         llyr = kl - 1
+<       endif                     ! end_if_top_at_1
+< 
+3014c3107
+<       if (top_at_1) then                   ! input data from toa to sfc
+---
+>       if ( ivflip == 0 ) then                   ! input data from toa to sfc
+3022c3115
+<       endif                                     ! end_if_top_at_1
+---
+>       endif                                     ! end_if_ivflip
+3156c3249
+<       if (top_at_1) then                   ! input data from toa to sfc
+---
+>       if ( ivflip == 0 ) then                   ! input data from toa to sfc
+3320c3413
+<       endif                                     ! end_if_top_at_1
+---
+>       endif                                     ! end_if_ivflip
+3326a3420,3435
+> !! @}
+> 
+> !+---+-----------------------------------------------------------------+
+> !..Cloud fraction scheme by G. Thompson (NCAR-RAL), not intended for
+> !.. combining with any cumulus or shallow cumulus parameterization
+> !.. scheme cloud fractions.  This is intended as a stand-alone for
+> !.. cloud fraction and is relatively good at getting widespread stratus
+> !.. and stratoCu without caring whether any deep/shallow Cu param schemes
+> !.. is making sub-grid-spacing clouds/precip.  Under the hood, this
+> !.. scheme follows Mocko and Cotton (1995) in application of the
+> !.. Sundqvist et al (1989) scheme but using a grid-scale dependent
+> !.. RH threshold, one each for land v. ocean points based on
+> !.. experiences with HWRF testing.
+> !+---+-----------------------------------------------------------------+
+> !
+> !+---+-----------------------------------------------------------------+
+3328,3337d3436
+< !> Cloud fraction scheme by G. Thompson (NCAR-RAL), not intended for
+< !! combining with any cumulus or shallow cumulus parameterization
+< !! scheme cloud fractions.  This is intended as a stand-alone for
+< !! cloud fraction and is relatively good at getting widespread stratus
+< !! and stratoCu without caring whether any deep/shallow Cu param schemes
+< !! is making sub-grid-spacing clouds/precip.  Under the hood, this
+< !! scheme follows Mocko and Cotton (1995) in application of the
+< !! Sundqvist et al (1989) scheme but using a grid-scale dependent
+< !! RH threshold, one each for land v. ocean points based on
+< !! experiences with HWRF testing.
+3357c3456
+<       REAL:: TC, qvsi, qvsw, RHUM, delz, var_temp
+---
+>       REAL:: TC, qvsi, qvsw, RHUM, delz
+3417,3418c3516
+<             var_temp = MIN(0.99, 0.1*(11.0 + log10(qc(k)+qi(k))))
+<             CLDFRA(K) = var_temp*var_temp
+---
+>             CLDFRA(K) = MIN(0.99, 0.1*(11.0 + log10(qc(k)+qi(k))))
+3428c3526
+<             if (tc .lt. -24.0) RH_00 = RH_00L
+---
+>             if (tc .lt. -12.0) RH_00 = RH_00L
+3432c3530
+<             elseif (tc .ge. -24.0) then
+---
+>             elseif (tc .ge. -12.0) then
+3434,3435c3532
+<                var_temp = SQRT(SQRT((1.001-RHUM)/(1.001-RH_00)))
+<                CLDFRA(K) = MAX(0., 1.0-var_temp)
+---
+>                CLDFRA(K) = MAX(0., 1.0-SQRT((1.001-RHUM)/(1.001-RH_00)))
+3440,3442c3537,3538
+<                   RH_00 = RH_00 + (1.45-RH_00)*(-24.0-tc)/(-24.0+85.)
+<                   var_temp = SQRT(SQRT((1.46-RHUM)/(1.46-RH_00)))
+<                   CLDFRA(K) = MAX(0., 1.0-var_temp)
+---
+>                   RH_00 = RH_00 + (1.45-RH_00)*(-12.0-tc)/(-12.0+85.)
+>                   CLDFRA(K) = MAX(0.,1.0-SQRT((1.46-RHUM)/(1.46-RH_00)))
+3446,3448c3542,3543
+<                   RH_00 = RH_00 + (1.05-RH_00)*(-24.0-tc)/(-24.0+85.)
+<                   var_temp = SQRT(SQRT((1.06-RHUM)/(1.06-RH_00)))
+<                   CLDFRA(K) = MAX(0., 1.0-var_temp)
+---
+>                   RH_00 = RH_00 + (1.05-RH_00)*(-12.0-tc)/(-12.0+85.)
+>                   CLDFRA(K) = MAX(0.,1.0-SQRT((1.06-RHUM)/(1.06-RH_00)))
+3480,3482c3575,3579
+< !>From cloud fraction array, find clouds of multi-level depth and compute
+< !! a reasonable value of LWP or IWP that might be contained in that depth,
+< !! unless existing LWC/IWC is already there.
+---
+> !+---+-----------------------------------------------------------------+
+> !..From cloud fraction array, find clouds of multi-level depth and compute
+> !.. a reasonable value of LWP or IWP that might be contained in that depth,
+> !.. unless existing LWC/IWC is already there.
+> 
+3640d3736
+< !>
+3682d3777
+< !>
+3725,3726c3820,3822
+< !> Do not alter any grid-explicitly resolved hydrometeors, rather only
+< !! the supposed amounts due to the cloud fraction scheme.
+---
+> !..Do not alter any grid-explicitly resolved hydrometeors, rather only
+> !.. the supposed amounts due to the cloud fraction scheme.
+> 
+3766d3861
+< !> This subroutine computes the Xu-Randall cloud fraction scheme.
+3790a3886
+> !         clwt = 2.0e-6 * (plyr(i,k)*0.001)
+3799a3896,3897
+> !           tem1  = 1000.0 / tem1
+> 
+3810d3907
+< !>
+3860d3956
+< !>
+3886c3982
+<           clwt = 1.0e-6 * (plyr(i,k)*0.001)
+---
+>           clwt = 1.0e-10 * (plyr(i,k)*0.001)
+3916c4012,4013
+< !>@}
+---
+> !! @}
+> !========================================!

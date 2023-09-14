@@ -261,7 +261,8 @@
         elseif (imp_physics == imp_physics_zhao_carr) then
           do k=1,levs
             do i=1,im
-              uqdt(i,k,ntcw) = dvdftra(i,k,2)
+              dqdt(i,k,ntqv) = dvdftra(i,k,1)
+              dqdt(i,k,ntcw) = dvdftra(i,k,2)
               dqdt(i,k,ntoz) = dvdftra(i,k,3)
             enddo
           enddo
